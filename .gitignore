@@ -1,0 +1,57 @@
+# Python 缓存
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 虚拟环境
+.venv/
+venv/
+env/
+ENV/
+
+# 环境变量与敏感配置
+.env
+.env.*
+!.env.example
+
+# Python 构建产物
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# 测试 / 覆盖率缓存
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# 类型检查 / 静态分析缓存
+.mypy_cache/
+.pyright/
+.ruff_cache/
+
+# 日志
+*.log
+
+# 临时文件
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# 当前项目测试过程中可能生成的临时文件
+tmp_*
+temp_*
+
+# IDE
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+Desktop.ini
