@@ -1,5 +1,8 @@
 from pathlib import Path
-from agent import read_file, write_file
+import subprocess
+import sys
+
+from agent import read_file, write_file, run_command
 
 
 def test_read_normal_file():
@@ -59,7 +62,37 @@ def test_write_missing_parent_raises():
         print("missing parent correctly raised FileNotFoundError")
 
 
-test_write_normal_file()
-test_write_empty_file()
-test_write_missing_parent_raises()
-print("all write_file tests passed")
+
+def test_run_command_success():
+    cmd = f'"{sys.executable}" -c "print(123)"'
+    result = run_command(cmd)
+    print("success result:", result)
+
+    assert result["returncode"] == 0
+    assert result["stdout"].strip() == "123"
+    assert result["stderr"] == ""
+
+
+def test_run_command_failure():
+    cmd = f'"{sys.executable}" -c "import sys; sys.stderr.write(\'bad\'); sys.exit(2)"'
+    result = run_command(cmd)
+    print("failure result:", result)
+
+    assert result["returncode"] == 2
+    assert result["stderr"] == "bad"
+
+
+def test_run_command_timeout():
+    cmd = f'"{sys.executable}" -c "import time; time.sleep(2)"'
+
+    try:
+        run_command(cmd, timeout=0.1)
+        assert False, "timeout should raise TimeoutExpired"
+    except subprocess.TimeoutExpired:
+        print("command correctly timed out")
+
+
+test_run_command_success()
+test_run_command_failure()
+test_run_command_timeout()
+print("all run_command tests passed")
