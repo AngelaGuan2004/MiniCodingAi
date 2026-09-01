@@ -1,5 +1,5 @@
 import subprocess
-
+import json
 
 TOOLS = [
     {
@@ -92,3 +92,26 @@ def call_model(client, model: str, messages: list, tools: list) -> dict:
     result.setdefault("content", None)
     print("call_model result:", result)
     return result
+
+def execute_tool(name: str, arguments_json: str) -> str:
+    print("execute_tool name:", name)
+    print("execute_tool arguments:", arguments_json)
+
+    try:
+        arguments = json.loads(arguments_json)
+
+        if name == "read_file":
+            result = read_file(**arguments)
+        elif name == "write_file":
+            result = write_file(**arguments)
+        elif name == "run_command":
+            result = run_command(**arguments)
+        else:
+            raise ValueError(f"unknown tool: {name}")
+
+        output = {"ok": True, "result": result}
+    except Exception as error:
+        output = {"ok": False, "error": str(error)}
+
+    print("execute_tool result:", output)
+    return json.dumps(output, ensure_ascii=False)

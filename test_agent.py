@@ -2,7 +2,8 @@ from pathlib import Path
 import subprocess
 import sys
 from types import SimpleNamespace
-from agent import read_file, write_file, run_command, call_model, TOOLS
+import json
+from agent import read_file, write_file, run_command, call_model, TOOLS, execute_tool
 
 
 def test_read_normal_file():
@@ -177,5 +178,52 @@ def test_tools_schema():
         assert "description" in function
 
 
-test_tools_schema()
-print("all tools schema tests passed")
+
+def test_execute_tool_read():
+    path = Path("tmp_execute.txt")
+    path.write_text("agent data", encoding="utf-8")
+
+    result = json.loads(
+        execute_tool("read_file", '{"path":"tmp_execute.txt"}')
+    )
+    print("execute read result:", result)
+
+    assert result == {"ok": True, "result": "agent data"}
+    path.unlink()
+
+
+def test_execute_tool_write():
+    result = json.loads(
+        execute_tool(
+            "write_file",
+            '{"path":"tmp_execute_write.txt","content":"hello"}',
+        )
+    )
+    print("execute write result:", result)
+
+    assert result == {"ok": True, "result": None}
+    assert Path("tmp_execute_write.txt").read_text(
+        encoding="utf-8"
+    ) == "hello"
+    Path("tmp_execute_write.txt").unlink()
+
+
+def test_execute_tool_unknown():
+    result = json.loads(execute_tool("unknown", "{}"))
+    print("unknown tool result:", result)
+
+    assert result["ok"] is False
+    assert "unknown" in result["error"]
+
+
+def test_execute_tool_bad_arguments():
+    result = json.loads(execute_tool("read_file", "{bad json"))
+    print("bad arguments result:", result)
+
+    assert result["ok"] is False
+
+test_execute_tool_read()
+test_execute_tool_write()
+test_execute_tool_unknown()
+test_execute_tool_bad_arguments()
+print("all execute_tool tests passed")
