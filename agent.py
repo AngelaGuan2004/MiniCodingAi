@@ -56,12 +56,12 @@ def read_file(path: str) -> str:
     print("read_file path:", repr(path))
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()
-    print("read_file content:", repr(content))
+    # print("read_file content:", repr(content))
     return content
 
 def write_file(path: str, content: str) -> None:
     print("write_file path:", repr(path))
-    print("write_file content:", repr(content))
+    # print("write_file content:", repr(content))
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
 
@@ -80,11 +80,36 @@ def run_command(command: str, timeout: float = 10) -> dict:
         "stdout": result.stdout,
         "stderr": result.stderr,
     }
-    print("run_command result:", output)
+    # print("run_command result:", output)
+    print("returncode:", result.returncode)
+    if result.stdout:
+        print("stdout:", repr(result.stdout))
+    if result.stderr:
+        print("stderr:", repr(result.stderr))
     return output
 
+def read_task(input_fn=None) -> str:
+    if input_fn is None:
+        input_fn = input
+
+    print("请输入（回车2次以运行）：")
+    lines = []
+
+    while True:
+        line = input_fn()
+        if line == "":
+            break
+        lines.append(line)
+
+    task = "\n".join(lines).strip()
+    if not task:
+        raise ValueError("task cannot be empty")
+
+    return task
+
+
 def call_model(client, model: str, messages: list, tools: list) -> dict:
-    print("call_model messages:", messages)
+    # print("call_model messages:", messages)
     response = client.chat.completions.create(
         model=model,
         messages=messages,
@@ -92,12 +117,12 @@ def call_model(client, model: str, messages: list, tools: list) -> dict:
     )
     result = response.choices[0].message.model_dump(exclude_none=True)
     result.setdefault("content", None)
-    print("call_model result:", result)
+    # print("call_model result:", result)
     return result
 
 def execute_tool(name: str, arguments_json: str) -> str:
     print("execute_tool name:", name)
-    print("execute_tool arguments:", arguments_json)
+    # print("execute_tool arguments:", arguments_json)
 
     try:
         arguments = json.loads(arguments_json)
@@ -115,20 +140,26 @@ def execute_tool(name: str, arguments_json: str) -> str:
     except Exception as error:
         output = {"ok": False, "error": str(error)}
 
-    print("execute_tool result:", output)
+    # print("execute_tool result:", output)
     return json.dumps(output, ensure_ascii=False)
 
 def run_agent(client, model: str, task: str, max_steps: int = 8) -> str:
     messages = [{"role": "user", "content": task}]
-    print("run_agent task:", repr(task))
+    # print("run_agent task:", repr(task))
+    print("agent started")
 
     for step in range(max_steps):
         print("run_agent step:", step + 1)
         reply = call_model(client, model, messages, TOOLS)
         tool_calls = reply.get("tool_calls")
 
+        if tool_calls:
+            print(
+                "tools:",
+                [call["function"]["name"] for call in tool_calls],
+            )
         if not tool_calls:
-            print("run_agent final:", repr(reply.get("content")))
+            # print("run_agent final:", repr(reply.get("content")))
             return reply.get("content") or ""
 
         messages.append(reply)
@@ -150,18 +181,21 @@ def run_agent(client, model: str, task: str, max_steps: int = 8) -> str:
     )
 
 def main() -> str:
-    task = input("Task: ").strip()
+    task = read_task()
     if not task:
         raise ValueError("task cannot be empty")
 
     api_key = os.environ["ZAI_API_KEY"]
+    model = os.getenv("ZAI_MODEL", "glm-4.7-flash")
     client = OpenAI(
         api_key=api_key,
         base_url="https://open.bigmodel.cn/api/paas/v4/",
     )
 
-    result = run_agent(client, "glm-4.7-flash", task)
-    print("agent result:", result)
+    # result = run_agent(client, "glm-4.7-flash", task)
+    result = run_agent(client, model, task)
+    print("\nResult:")
+    print(result)
     return result
 
 

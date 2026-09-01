@@ -9,7 +9,7 @@ import agent
 
 from agent import (
     read_file, write_file, run_command, call_model,
-    TOOLS, execute_tool, run_agent, main
+    TOOLS, execute_tool, run_agent, main, read_task
 )
 
 
@@ -346,7 +346,19 @@ def test_main_missing_key():
             os.environ["ZAI_API_KEY"] = old_key
 
 
-test_main_normal()
-test_main_empty_task()
-test_main_missing_key()
-print("all main CLI tests passed")
+
+def test_read_task_multiline():
+    lines = iter(["第一行", "第二行", ""])
+    result = agent.read_task(lambda prompt="": next(lines))
+    assert result == "第一行\n第二行"
+
+
+def test_read_task_empty():
+    lines = iter([""])
+    try:
+        agent.read_task(lambda prompt="": next(lines))
+        assert False
+    except ValueError:
+        pass
+    
+test_read_task_multiline()
