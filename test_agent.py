@@ -1,8 +1,8 @@
 from pathlib import Path
 import subprocess
 import sys
-
-from agent import read_file, write_file, run_command
+from types import SimpleNamespace
+from agent import read_file, write_file, run_command, call_model
 
 
 def test_read_normal_file():
@@ -92,7 +92,70 @@ def test_run_command_timeout():
         print("command correctly timed out")
 
 
-test_run_command_success()
-test_run_command_failure()
-test_run_command_timeout()
-print("all run_command tests passed")
+
+def fake_client(message=None, error=None):
+    calls = {}
+
+    def create(**kwargs):
+        calls.update(kwargs)
+        if error:
+            raise error
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=message)]
+        )
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=create)
+        )
+    )
+    return client, calls
+
+
+def test_call_model_text():
+    msg = SimpleNamespace(
+        model_dump=lambda exclude_none=True:
+        {"role": "assistant", "content": "done"}
+    )
+    client, calls = fake_client(msg)
+    messages = [{"role": "user", "content": "hello"}]
+
+    result = call_model(client, "demo-model", messages, [])
+
+    print("text model result:", result)
+    assert result == {"role": "assistant", "content": "done"}
+    assert calls["model"] == "demo-model"
+    assert calls["messages"] == messages
+    assert calls["tools"] == []
+
+
+def test_call_model_tool_call():
+    expected = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [{"id": "1", "type": "function"}],
+    }
+    msg = SimpleNamespace(
+        model_dump=lambda exclude_none=True: expected
+    )
+    client, _ = fake_client(msg)
+
+    result = call_model(client, "demo-model", [], [])
+
+    print("tool model result:", result)
+    assert result == expected
+
+
+def test_call_model_error():
+    client, _ = fake_client(error=RuntimeError("API failed"))
+    try:
+        call_model(client, "demo-model", [], [])
+        assert False, "API error should propagate"
+    except RuntimeError:
+        print("model API error correctly propagated")
+
+
+test_call_model_text()
+test_call_model_tool_call()
+test_call_model_error()
+print("all call_model tests passed")

@@ -30,3 +30,15 @@ def run_command(command: str, timeout: float = 10) -> dict:
     }
     print("run_command result:", output)
     return output
+
+def call_model(client, model: str, messages: list, tools: list) -> dict:
+    print("call_model messages:", messages)
+    response = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        tools=tools,
+    )
+    result = response.choices[0].message.model_dump(exclude_none=True)
+    result.setdefault("content", None)
+    print("call_model result:", result)
+    return result
