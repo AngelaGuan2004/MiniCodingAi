@@ -3,7 +3,7 @@ import subprocess
 import sys
 from types import SimpleNamespace
 import json
-from agent import read_file, write_file, run_command, call_model, TOOLS, execute_tool
+from agent import read_file, write_file, run_command, call_model, TOOLS, execute_tool, run_agent
 
 
 def test_read_normal_file():
@@ -222,8 +222,56 @@ def test_execute_tool_bad_arguments():
 
     assert result["ok"] is False
 
-test_execute_tool_read()
-test_execute_tool_write()
-test_execute_tool_unknown()
-test_execute_tool_bad_arguments()
-print("all execute_tool tests passed")
+
+def test_run_agent_tool_loop():
+    path = Path("tmp_agent_loop.txt")
+    path.write_text("loop data", encoding="utf-8")
+    replies = iter([
+        {"role": "assistant", "content": None, "tool_calls": [{
+            "id": "call_1", "type": "function",
+            "function": {"name": "read_file",
+                         "arguments": '{"path":"tmp_agent_loop.txt"}'}
+        }]},
+        {"role": "assistant", "content": "任务完成"},
+    ])
+    requests = []
+
+    def create(**kwargs):
+        requests.append(kwargs)
+        data = next(replies)
+        return SimpleNamespace(choices=[SimpleNamespace(
+            message=SimpleNamespace(
+                model_dump=lambda exclude_none=True, d=data: d)
+        )])
+
+    client = SimpleNamespace(chat=SimpleNamespace(
+        completions=SimpleNamespace(create=create)))
+
+    result = run_agent(client, "demo-model", "读取测试文件")
+    print("agent result:", result)
+    print("second request messages:", requests[1]["messages"])
+
+    assert result == "任务完成"
+    assert requests[1]["messages"][-1]["role"] == "tool"
+    assert "loop data" in requests[1]["messages"][-1]["content"]
+    path.unlink()
+
+
+def test_run_agent_max_steps():
+    msg = SimpleNamespace(model_dump=lambda exclude_none=True: {
+        "role": "assistant", "content": None, "tool_calls": [{
+            "id": "1", "type": "function",
+            "function": {"name": "unknown", "arguments": "{}"}
+        }]
+    })
+    client, _ = fake_client(msg)
+    try:
+        run_agent(client, "demo-model", "无限任务", max_steps=1)
+        assert False, "max steps should raise RuntimeError"
+    except RuntimeError:
+        print("agent correctly stopped at max steps")
+
+
+test_run_agent_tool_loop()
+test_run_agent_max_steps()
+print("all run_agent tests passed")

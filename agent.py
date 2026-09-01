@@ -115,3 +115,34 @@ def execute_tool(name: str, arguments_json: str) -> str:
 
     print("execute_tool result:", output)
     return json.dumps(output, ensure_ascii=False)
+
+def run_agent(client, model: str, task: str, max_steps: int = 8) -> str:
+    messages = [{"role": "user", "content": task}]
+    print("run_agent task:", repr(task))
+
+    for step in range(max_steps):
+        print("run_agent step:", step + 1)
+        reply = call_model(client, model, messages, TOOLS)
+        tool_calls = reply.get("tool_calls")
+
+        if not tool_calls:
+            print("run_agent final:", repr(reply.get("content")))
+            return reply.get("content") or ""
+
+        messages.append(reply)
+
+        for tool_call in tool_calls:
+            function = tool_call["function"]
+            result = execute_tool(
+                function["name"],
+                function["arguments"],
+            )
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call["id"],
+                "content": result,
+            })
+
+    raise RuntimeError(
+        f"agent exceeded maximum steps: {max_steps}"
+    )
