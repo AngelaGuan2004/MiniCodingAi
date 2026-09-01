@@ -3,7 +3,14 @@ import subprocess
 import sys
 from types import SimpleNamespace
 import json
-from agent import read_file, write_file, run_command, call_model, TOOLS, execute_tool, run_agent
+import os
+import builtins
+import agent
+
+from agent import (
+    read_file, write_file, run_command, call_model,
+    TOOLS, execute_tool, run_agent, main
+)
 
 
 def test_read_normal_file():
@@ -271,7 +278,75 @@ def test_run_agent_max_steps():
     except RuntimeError:
         print("agent correctly stopped at max steps")
 
+def test_main_normal():
+    calls = {}
+    old_key = os.environ.get("ZAI_API_KEY")
+    old_input = builtins.input
+    old_openai = agent.OpenAI
+    old_run_agent = agent.run_agent
 
-test_run_agent_tool_loop()
-test_run_agent_max_steps()
-print("all run_agent tests passed")
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            calls["client"] = kwargs
+
+    def fake_run_agent(client, model, task):
+        calls["model"] = model
+        calls["task"] = task
+        return "完成"
+
+    try:
+        os.environ["ZAI_API_KEY"] = "fake-key"
+        builtins.input = lambda prompt="": "修复测试代码"
+        agent.OpenAI = FakeOpenAI
+        agent.run_agent = fake_run_agent
+
+        result = main()
+    finally:
+        builtins.input = old_input
+        agent.OpenAI = old_openai
+        agent.run_agent = old_run_agent
+        if old_key is None:
+            os.environ.pop("ZAI_API_KEY", None)
+        else:
+            os.environ["ZAI_API_KEY"] = old_key
+
+    assert result == "完成"
+    assert calls["model"] == "glm-4.7-flash"
+    assert calls["task"] == "修复测试代码"
+    assert calls["client"]["api_key"] == "fake-key"
+
+
+def test_main_empty_task():
+    old_input = builtins.input
+    builtins.input = lambda prompt="": "   "
+    try:
+        try:
+            main()
+            assert False, "empty task should raise ValueError"
+        except ValueError:
+            print("empty task correctly rejected")
+    finally:
+        builtins.input = old_input
+
+
+def test_main_missing_key():
+    old_key = os.environ.pop("ZAI_API_KEY", None)
+    old_input = builtins.input
+    builtins.input = lambda prompt="": "读取文件"
+
+    try:
+        try:
+            main()
+            assert False, "missing API key should raise KeyError"
+        except KeyError:
+            print("missing API key correctly rejected")
+    finally:
+        builtins.input = old_input
+        if old_key is not None:
+            os.environ["ZAI_API_KEY"] = old_key
+
+
+test_main_normal()
+test_main_empty_task()
+test_main_missing_key()
+print("all main CLI tests passed")

@@ -1,5 +1,7 @@
 import subprocess
 import json
+import os
+from openai import OpenAI
 
 TOOLS = [
     {
@@ -146,3 +148,22 @@ def run_agent(client, model: str, task: str, max_steps: int = 8) -> str:
     raise RuntimeError(
         f"agent exceeded maximum steps: {max_steps}"
     )
+
+def main() -> str:
+    task = input("Task: ").strip()
+    if not task:
+        raise ValueError("task cannot be empty")
+
+    api_key = os.environ["ZAI_API_KEY"]
+    client = OpenAI(
+        api_key=api_key,
+        base_url="https://open.bigmodel.cn/api/paas/v4/",
+    )
+
+    result = run_agent(client, "glm-4.7-flash", task)
+    print("agent result:", result)
+    return result
+
+
+if __name__ == "__main__":
+    main()
