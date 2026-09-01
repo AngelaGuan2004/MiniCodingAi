@@ -2,7 +2,7 @@ from pathlib import Path
 import subprocess
 import sys
 from types import SimpleNamespace
-from agent import read_file, write_file, run_command, call_model
+from agent import read_file, write_file, run_command, call_model, TOOLS
 
 
 def test_read_normal_file():
@@ -155,7 +155,27 @@ def test_call_model_error():
         print("model API error correctly propagated")
 
 
-test_call_model_text()
-test_call_model_tool_call()
-test_call_model_error()
-print("all call_model tests passed")
+def test_tools_schema():
+    assert len(TOOLS) == 3
+
+    functions = {tool["function"]["name"]: tool["function"]
+                 for tool in TOOLS}
+    print("tool names:", list(functions))
+
+    assert set(functions) == {
+        "read_file", "write_file", "run_command"
+    }
+
+    assert functions["read_file"]["parameters"]["required"] == ["path"]
+    assert functions["write_file"]["parameters"]["required"] == [
+        "path", "content"
+    ]
+    assert functions["run_command"]["parameters"]["required"] == ["command"]
+
+    for function in functions.values():
+        assert function["parameters"]["type"] == "object"
+        assert "description" in function
+
+
+test_tools_schema()
+print("all tools schema tests passed")

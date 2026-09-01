@@ -1,5 +1,55 @@
 import subprocess
 
+
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "读取UTF-8文本文件的完整内容",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "文件路径"}
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "将UTF-8文本内容写入文件并覆盖原内容",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "文件路径"},
+                    "content": {"type": "string", "description": "写入内容"},
+                },
+                "required": ["path", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_command",
+            "description": "在本地Shell中执行命令",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "Shell命令"}
+                },
+                "required": ["command"],
+            },
+        },
+    },
+]
+
+# print("TOOLS:", [tool["function"]["name"] for tool in TOOLS])
+
+
 def read_file(path: str) -> str:
     print("read_file path:", repr(path))
     with open(path, "r", encoding="utf-8") as f:
