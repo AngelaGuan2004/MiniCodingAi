@@ -265,7 +265,7 @@ def run_agent(
     client,
     model: str,
     task: str,
-    max_steps: int = 15,
+    max_steps: int = 30,
     workspace: str = ".",
     on_event=None,
 ) -> str:
