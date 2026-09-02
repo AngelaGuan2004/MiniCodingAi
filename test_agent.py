@@ -8,7 +8,7 @@ import builtins
 import agent
 
 from agent import (
-    read_file, write_file, run_command, call_model,
+    list_files, read_file, write_file, run_command, call_model,
     TOOLS, execute_tool, run_agent, main, read_task
 )
 
@@ -164,16 +164,17 @@ def test_call_model_error():
 
 
 def test_tools_schema():
-    assert len(TOOLS) == 3
+    assert len(TOOLS) == 4
 
     functions = {tool["function"]["name"]: tool["function"]
                  for tool in TOOLS}
     print("tool names:", list(functions))
 
     assert set(functions) == {
-        "read_file", "write_file", "run_command"
+        "list_files", "read_file", "write_file", "run_command"
     }
 
+    assert functions["list_files"]["parameters"]["required"] == []
     assert functions["read_file"]["parameters"]["required"] == ["path"]
     assert functions["write_file"]["parameters"]["required"] == [
         "path", "content"
@@ -289,14 +290,20 @@ def test_main_normal():
         def __init__(self, **kwargs):
             calls["client"] = kwargs
 
-    def fake_run_agent(client, model, task):
+    def fake_run_agent(
+        client,
+        model,
+        task,
+        workspace=".",
+    ):
         calls["model"] = model
         calls["task"] = task
         return "完成"
 
     try:
         os.environ["ZAI_API_KEY"] = "fake-key"
-        builtins.input = lambda prompt="": "修复测试代码"
+        lines = iter(["修复测试代码", ""])
+        builtins.input = lambda prompt="": next(lines)
         agent.OpenAI = FakeOpenAI
         agent.run_agent = fake_run_agent
 
@@ -318,7 +325,8 @@ def test_main_normal():
 
 def test_main_empty_task():
     old_input = builtins.input
-    builtins.input = lambda prompt="": "   "
+    lines = iter([""])
+    builtins.input = lambda prompt="": next(lines)
     try:
         try:
             main()
@@ -332,7 +340,8 @@ def test_main_empty_task():
 def test_main_missing_key():
     old_key = os.environ.pop("ZAI_API_KEY", None)
     old_input = builtins.input
-    builtins.input = lambda prompt="": "读取文件"
+    lines = iter(["读取文件", ""])
+    builtins.input = lambda prompt="": next(lines)
 
     try:
         try:
@@ -361,4 +370,138 @@ def test_read_task_empty():
     except ValueError:
         pass
     
-test_read_task_multiline()
+def test_list_files():
+    root = Path("tmp_list_files")
+    (root / "pkg").mkdir(parents=True)
+    (root / "node_modules").mkdir()
+    (root / "a.py").write_text("", encoding="utf-8")
+    (root / "pkg" / "b.py").write_text("", encoding="utf-8")
+    (root / "node_modules" / "ignored.js").write_text("", encoding="utf-8")
+
+    result = list_files(str(root))
+
+    assert result == [
+        "tmp_list_files/a.py",
+        "tmp_list_files/pkg/b.py",
+    ]
+
+    (root / "a.py").unlink()
+    (root / "pkg" / "b.py").unlink()
+    (root / "node_modules" / "ignored.js").unlink()
+    (root / "pkg").rmdir()
+    (root / "node_modules").rmdir()
+    root.rmdir()
+
+
+def test_execute_tool_list_files():
+    root = Path("tmp_execute_list")
+    root.mkdir()
+    (root / "demo.py").write_text("", encoding="utf-8")
+
+    result = json.loads(
+        execute_tool("list_files", '{"path":"tmp_execute_list"}')
+    )
+
+    assert result["ok"] is True
+    assert result["result"] == ["tmp_execute_list/demo.py"]
+
+    (root / "demo.py").unlink()
+    root.rmdir()
+
+def test_workspace_blocks_escape():
+    root = Path("tmp_workspace")
+    root.mkdir()
+
+    try:
+        try:
+            read_file("../agent.py", workspace=str(root))
+            assert False, "workspace escape should fail"
+        except ValueError:
+            pass
+    finally:
+        root.rmdir()
+
+
+def test_run_command_workspace():
+    root = Path("tmp_command_workspace")
+    root.mkdir()
+
+    try:
+        cmd = (
+            f'"{sys.executable}" '
+            '-c "import os; print(os.getcwd())"'
+        )
+        result = run_command(cmd, workspace=str(root))
+
+        assert Path(result["stdout"].strip()).resolve() == root.resolve()
+    finally:
+        root.rmdir()
+
+
+def test_list_files_workspace_relative():
+    root = Path("tmp_list_workspace")
+    root.mkdir()
+    (root / "demo.py").write_text("", encoding="utf-8")
+
+    try:
+        assert list_files(".", workspace=str(root)) == ["demo.py"]
+    finally:
+        (root / "demo.py").unlink()
+        root.rmdir()
+
+
+def test_main_model_override():
+    calls = {}
+    old_key = os.environ.get("ZAI_API_KEY")
+    old_model = os.environ.get("ZAI_MODEL")
+    old_input = builtins.input
+    old_openai = agent.OpenAI
+    old_run_agent = agent.run_agent
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            pass
+
+    def fake_run_agent(
+        client,
+        model,
+        task,
+        workspace=".",
+    ):
+        calls["model"] = model
+        return "完成"
+
+    try:
+        os.environ["ZAI_API_KEY"] = "fake-key"
+        os.environ["ZAI_MODEL"] = "glm-4.7"
+        lines = iter(["修复代码", ""])
+        builtins.input = lambda prompt="": next(lines)
+        agent.OpenAI = FakeOpenAI
+        agent.run_agent = fake_run_agent
+        main()
+    finally:
+        builtins.input = old_input
+        agent.OpenAI = old_openai
+        agent.run_agent = old_run_agent
+
+        if old_key is None:
+            os.environ.pop("ZAI_API_KEY", None)
+        else:
+            os.environ["ZAI_API_KEY"] = old_key
+
+        if old_model is None:
+            os.environ.pop("ZAI_MODEL", None)
+        else:
+            os.environ["ZAI_MODEL"] = old_model
+
+    assert calls["model"] == "glm-4.7"
+
+TESTS = [
+    value for name, value in list(globals().items())
+    if name.startswith("test_") and callable(value)
+]
+
+for test in TESTS:
+    test()
+
+print(f"all {len(TESTS)} tests passed")

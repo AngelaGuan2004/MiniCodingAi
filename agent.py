@@ -1,9 +1,37 @@
 import subprocess
 import json
 import os
+from pathlib import Path
 from openai import OpenAI
 
+SYSTEM_PROMPT = (
+    "你是本地 Coding Agent。所有文件路径和命令都以当前 workspace 为根目录。"
+    "只探索和修改当前任务相关的文件，不要修改测试来规避问题。"
+    "修改后运行与任务直接相关的测试或验证。"
+    "一旦相关验证成功，立即结束并总结，不要继续运行无关脚本。"
+    "如果现有相关测试已经通过且没有可复现失败，不要自行发明新的需求、"
+    "边界条件或 bug；直接说明当前无法复现并结束。"
+)
+
 TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "list_files",
+            "description": "递归列出目录中的项目文件，用于探索代码仓库结构",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "要探索的目录，默认当前目录",
+                        "default": ".",
+                    }
+                },
+                "required": [],
+            },
+        },
+    },
     {
         "type": "function",
         "function": {
@@ -50,23 +78,64 @@ TOOLS = [
 ]
 
 # print("TOOLS:", [tool["function"]["name"] for tool in TOOLS])
+def resolve_path(workspace: str, path: str) -> Path:
+    root = Path(workspace).resolve()
+    target = (root / path).resolve()
+
+    if target != root and root not in target.parents:
+        raise ValueError(f"path outside workspace: {path}")
+
+    return target
+
+def list_files(path: str = ".", workspace: str = ".") -> list[str]:
+    print("list_files path:", repr(path))
+    root = resolve_path(workspace, path)
+
+    if not root.is_dir():
+        raise FileNotFoundError(path)
+
+    workspace_root = Path(workspace).resolve()
+    ignored = {
+        ".git", "__pycache__", ".venv", "venv", "env",
+        "node_modules", "build", "dist",
+    }
+    files = []
+
+    for current, dirs, names in os.walk(root):
+        dirs[:] = [name for name in dirs if name not in ignored]
+        for name in names:
+            file_path = Path(current) / name
+            files.append(
+                file_path.relative_to(workspace_root).as_posix()
+            )
+
+    return sorted(files)
 
 
-def read_file(path: str) -> str:
+def read_file(path: str, workspace: str = ".") -> str:
     print("read_file path:", repr(path))
-    with open(path, "r", encoding="utf-8") as f:
-        content = f.read()
-    # print("read_file content:", repr(content))
-    return content
+    target = resolve_path(workspace, path)
 
-def write_file(path: str, content: str) -> None:
+    with open(target, "r", encoding="utf-8") as f:
+        return f.read()
+
+def write_file(
+    path: str,
+    content: str,
+    workspace: str = ".",
+) -> None:
     print("write_file path:", repr(path))
-    # print("write_file content:", repr(content))
-    with open(path, "w", encoding="utf-8") as f:
+    target = resolve_path(workspace, path)
+
+    with open(target, "w", encoding="utf-8") as f:
         f.write(content)
 
 
-def run_command(command: str, timeout: float = 10) -> dict:
+def run_command(
+    command: str,
+    timeout: float = 10,
+    workspace: str = ".",
+) -> dict:
     print("run_command command:", repr(command))
     result = subprocess.run(
         command,
@@ -74,6 +143,7 @@ def run_command(command: str, timeout: float = 10) -> dict:
         capture_output=True,
         text=True,
         timeout=timeout,
+        cwd=Path(workspace).resolve(),
     )
     output = {
         "returncode": result.returncode,
@@ -120,19 +190,35 @@ def call_model(client, model: str, messages: list, tools: list) -> dict:
     # print("call_model result:", result)
     return result
 
-def execute_tool(name: str, arguments_json: str) -> str:
+def execute_tool(
+    name: str,
+    arguments_json: str,
+    workspace: str = ".",
+) -> str:
     print("execute_tool name:", name)
     # print("execute_tool arguments:", arguments_json)
 
     try:
         arguments = json.loads(arguments_json)
 
-        if name == "read_file":
-            result = read_file(**arguments)
+        if name == "list_files":
+            result = list_files(
+                arguments.get("path", "."),
+                workspace,
+            )
+        elif name == "read_file":
+            result = read_file(arguments["path"], workspace)
         elif name == "write_file":
-            result = write_file(**arguments)
+            result = write_file(
+                arguments["path"],
+                arguments["content"],
+                workspace,
+            )
         elif name == "run_command":
-            result = run_command(**arguments)
+            result = run_command(
+                arguments["command"],
+                workspace=workspace,
+            )
         else:
             raise ValueError(f"unknown tool: {name}")
 
@@ -143,8 +229,17 @@ def execute_tool(name: str, arguments_json: str) -> str:
     # print("execute_tool result:", output)
     return json.dumps(output, ensure_ascii=False)
 
-def run_agent(client, model: str, task: str, max_steps: int = 8) -> str:
-    messages = [{"role": "user", "content": task}]
+def run_agent(
+    client,
+    model: str,
+    task: str,
+    max_steps: int = 8,
+    workspace: str = ".",
+) -> str:
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": task},
+    ]
     # print("run_agent task:", repr(task))
     print("agent started")
 
@@ -169,6 +264,7 @@ def run_agent(client, model: str, task: str, max_steps: int = 8) -> str:
             result = execute_tool(
                 function["name"],
                 function["arguments"],
+                workspace,
             )
             messages.append({
                 "role": "tool",
@@ -191,9 +287,16 @@ def main() -> str:
         api_key=api_key,
         base_url="https://open.bigmodel.cn/api/paas/v4/",
     )
+    workspace = os.getenv("AGENT_WORKSPACE", ".")
+    print("workspace:", str(Path(workspace).resolve()))
 
     # result = run_agent(client, "glm-4.7-flash", task)
-    result = run_agent(client, model, task)
+    result = run_agent(
+        client,
+        model,
+        task,
+        workspace=workspace,
+    )
     print("\nResult:")
     print(result)
     return result
