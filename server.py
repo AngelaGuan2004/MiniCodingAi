@@ -44,4 +44,5 @@ def run():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    # Agent edits can include Python files; reloading would abort the request.
+    app.run(debug=True, port=5000, use_reloader=False)
