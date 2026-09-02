@@ -361,7 +361,13 @@ function ResultPanel({ result }) {
 export default function App() {
   const [files, setFiles] = useState([]);
   const [task, setTask] = useState(
-    "项目中存在一个与除法功能相关的 bug。请自行探索代码，定位并修复问题。不要修改测试来规避问题。修复后运行相关测试，测试通过后结束。"
+    `这个项目的结账金额计算存在问题，主要出现在 VIP 折扣、免运费门槛和税费组合的场景。
+
+请自行探索整个项目，阅读项目中的业务规则，运行现有测试复现问题并定位根因。
+
+修复实现代码，使其符合项目规定的结账规则。不要修改测试来规避问题，也不要降低测试要求。
+
+修复后运行完整测试验证，全部通过后结束任务并总结你修改了什么。`
   );
   const [events, setEvents] = useState([]);
   const [result, setResult] = useState("");
