@@ -2,6 +2,7 @@ import subprocess
 import json
 import os
 from pathlib import Path
+import difflib
 from openai import OpenAI
 
 SYSTEM_PROMPT = (
@@ -194,12 +195,22 @@ def execute_tool(
     name: str,
     arguments_json: str,
     workspace: str = ".",
+    on_event=None,
 ) -> str:
     print("execute_tool name:", name)
-    # print("execute_tool arguments:", arguments_json)
 
     try:
         arguments = json.loads(arguments_json)
+
+        if on_event:
+            detail = arguments.get(
+                "path", arguments.get("command", "")
+            )
+            on_event({
+                "type": "tool_start",
+                "tool": name,
+                "detail": detail,
+            })
 
         if name == "list_files":
             result = list_files(
@@ -209,16 +220,38 @@ def execute_tool(
         elif name == "read_file":
             result = read_file(arguments["path"], workspace)
         elif name == "write_file":
-            result = write_file(
-                arguments["path"],
-                arguments["content"],
-                workspace,
+            path = arguments["path"]
+            target = resolve_path(workspace, path)
+            old = (
+                target.read_text(encoding="utf-8")
+                if target.exists() else ""
             )
+            content = arguments["content"]
+            result = write_file(path, content, workspace)
+
+            if on_event:
+                diff = "".join(difflib.unified_diff(
+                    old.splitlines(True),
+                    content.splitlines(True),
+                    fromfile=path,
+                    tofile=path,
+                ))
+                on_event({
+                    "type": "file_changed",
+                    "path": path,
+                    "diff": diff,
+                })
         elif name == "run_command":
             result = run_command(
                 arguments["command"],
                 workspace=workspace,
             )
+            if on_event:
+                on_event({
+                    "type": "command_result",
+                    "command": arguments["command"],
+                    **result,
+                })
         else:
             raise ValueError(f"unknown tool: {name}")
 
@@ -226,7 +259,6 @@ def execute_tool(
     except Exception as error:
         output = {"ok": False, "error": str(error)}
 
-    # print("execute_tool result:", output)
     return json.dumps(output, ensure_ascii=False)
 
 def run_agent(
@@ -235,6 +267,7 @@ def run_agent(
     task: str,
     max_steps: int = 8,
     workspace: str = ".",
+    on_event=None,
 ) -> str:
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -243,8 +276,20 @@ def run_agent(
     # print("run_agent task:", repr(task))
     print("agent started")
 
+    if on_event:
+        on_event({
+            "type": "agent_start",
+            "task": task,
+            "workspace": workspace,
+        })
+
     for step in range(max_steps):
         print("run_agent step:", step + 1)
+        if on_event:
+            on_event({
+                "type": "step",
+                "step": step + 1,
+            })
         reply = call_model(client, model, messages, TOOLS)
         tool_calls = reply.get("tool_calls")
 
@@ -254,8 +299,15 @@ def run_agent(
                 [call["function"]["name"] for call in tool_calls],
             )
         if not tool_calls:
-            # print("run_agent final:", repr(reply.get("content")))
-            return reply.get("content") or ""
+            result = reply.get("content") or ""
+
+            if on_event:
+                on_event({
+                    "type": "agent_done",
+                    "result": result,
+                })
+
+            return result
 
         messages.append(reply)
 
@@ -265,6 +317,7 @@ def run_agent(
                 function["name"],
                 function["arguments"],
                 workspace,
+                on_event,
             )
             messages.append({
                 "role": "tool",

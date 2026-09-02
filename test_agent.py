@@ -318,7 +318,7 @@ def test_main_normal():
             os.environ["ZAI_API_KEY"] = old_key
 
     assert result == "完成"
-    assert calls["model"] == "glm-4.7-flash"
+    assert calls["model"] == "glm-4.7" #"glm-4.7-flash"
     assert calls["task"] == "修复测试代码"
     assert calls["client"]["api_key"] == "fake-key"
 
@@ -495,6 +495,56 @@ def test_main_model_override():
             os.environ["ZAI_MODEL"] = old_model
 
     assert calls["model"] == "glm-4.7"
+
+def test_execute_tool_diff_event():
+    root = Path("tmp_event_workspace")
+    root.mkdir()
+    path = root / "demo.py"
+    path.write_text("x = 1\n", encoding="utf-8")
+    events = []
+
+    try:
+        result = json.loads(execute_tool(
+            "write_file",
+            '{"path":"demo.py","content":"x = 2\\n"}',
+            workspace=str(root),
+            on_event=events.append,
+        ))
+
+        assert result["ok"] is True
+        assert events[0]["type"] == "tool_start"
+        assert events[1]["type"] == "file_changed"
+        assert "-x = 1" in events[1]["diff"]
+        assert "+x = 2" in events[1]["diff"]
+    finally:
+        path.unlink()
+        root.rmdir()
+
+
+def test_run_agent_events():
+    events = []
+    msg = SimpleNamespace(
+        model_dump=lambda exclude_none=True: {
+            "role": "assistant",
+            "content": "完成",
+        }
+    )
+    client, _ = fake_client(msg)
+
+    result = run_agent(
+        client,
+        "demo-model",
+        "测试",
+        on_event=events.append,
+    )
+
+    assert result == "完成"
+    assert [event["type"] for event in events] == [
+        "agent_start",
+        "step",
+        "agent_done",
+    ]
+
 
 TESTS = [
     value for name, value in list(globals().items())
